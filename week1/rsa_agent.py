@@ -82,6 +82,6 @@ def agent(goal, max_steps=10, verbose=False):  # the LOOP
 
 if __name__ == "__main__":
     verbose = "--verbose" in sys.argv
-    goal = "What is France's GDP?"   # the question — edit this line to ask something else
+    goal = "What is the current GDP of France?"   # the question — edit this line to ask something else
     print("Goal:", goal)
     print("\nAnswer:", agent(goal, verbose=verbose))
