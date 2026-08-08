@@ -13,7 +13,7 @@ Prerequisites
   2. Install Ollama, then run:  ollama pull llama3.2
   3. Install the Python packages:  pip install ollama ddgs
 
-Run it
+Run it (it will ask you for your question)
   python rsa_agent.py             # just the answer
   python rsa_agent.py --verbose   # watch the memory grow, pass by pass
 """
@@ -82,6 +82,5 @@ def agent(goal, max_steps=10, verbose=False):  # the LOOP
 
 if __name__ == "__main__":
     verbose = "--verbose" in sys.argv
-    goal = "What is the current GDP of France?"   # the question — edit this line to ask something else
-    print("Goal:", goal)
+    goal = input("What would you like me to research? ")   # ask the user for the goal
     print("\nAnswer:", agent(goal, verbose=verbose))
