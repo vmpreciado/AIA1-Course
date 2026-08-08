@@ -1,9 +1,13 @@
-"""RSA — the minimal research agent from Week 1.
+"""RSA — the minimal research agent from Week 1 (about 30 lines).
 
 It runs a local Llama 3.2 model through Ollama and has one tool: a web search.
 For this course demo, `web_search` is a small BUILT-IN STUB that returns canned
 results, so the agent runs offline and every student sees the same clean trace.
 (In a later week we swap this stub for a real web search.)
+
+The system prompt gives the model only its role, its tool, and the reply format.
+It does NOT tell the model what to search for or when to stop — the agent decides
+that on its own, one pass at a time. That autonomy is the whole point.
 
 Prerequisites
   1. Install Python 3.
@@ -18,22 +22,13 @@ import sys
 import ollama  # talks to the local model
 
 MODEL = "llama3.2"
-# The system prompt fixes the format AND shows one worked example, so the small
-# local model reliably searches first and only then finishes with the answer.
-SYSTEM = (
-    "You are a research agent. You answer the user's question with a search tool.\n"
-    "On EACH turn, reply with EXACTLY ONE line, in one of these forms:\n"
-    "  action: search <what to look up>\n"
-    "  action: finish <the final answer>\n"
-    "Use 'search' to gather facts; use 'finish' only once you know the answer.\n"
-    "Never write anything except a single 'action:' line.\n\n"
-    "Example run:\n"
-    "Goal: What is Japan's GDP?\n"
-    "action: search current year\n"
-    "result: We are in 2026.\n"
-    "action: search Japan GDP in 2026\n"
-    "result: Japan's GDP in 2026 is $4.2 trillion.\n"
-    "action: finish Japan's GDP in 2026 is $4.2 trillion."
+SYSTEM = (  # role + tool + format only — no plan, no examples
+    "You are a research agent. Your only tool is a web search.\n"
+    "You cannot rely on your own knowledge; use the search tool to find facts.\n"
+    "On each turn, reply with a single line, in one of these two forms:\n"
+    "  action: search <query>\n"
+    "  action: finish <answer>\n"
+    "Finish only when you can state the answer."
 )
 
 
@@ -51,7 +46,7 @@ def call(memory):  # MODEL: memory -> one 'action:' line
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": memory}])
     text = reply["message"]["content"].strip()
-    for ln in text.splitlines():          # pick the line that holds the action
+    for ln in text.splitlines():          # take the line that holds the action
         if "action:" in ln.lower():
             return ln.strip()
     return text.splitlines()[0] if text else ""
@@ -66,22 +61,19 @@ def parse(line):  # PARSER: text -> (name, input)
 
 def agent(goal, max_steps=10, verbose=False):  # the LOOP
     memory = "Goal: " + goal
-    last = ""                                   # remember the latest search result
     for step in range(1, max_steps + 1):
-        line = call(memory)                     # perceive + reason
+        line = call(memory)                       # perceive + reason
         name, arg = parse(line)
         if verbose:
             print(f"\n--- pass {step} ---\nmodel : {line}")
-        if name == "finish" and arg:            # done, with a real answer
+        if name == "finish":                      # the model decides it is done
             return arg
-        if name == "search":                    # act
-            result = last = web_search(arg)
-        else:                                   # empty/unknown -> nudge, don't crash
-            result = "Search for the facts first, then finish with the answer."
-        memory += f"\n{line}\nresult: {result}"  # observe + update memory
+        result = web_search(arg) if name == "search" else \
+            "Unknown action. Use 'action: search <query>' or 'action: finish <answer>'."
+        memory += f"\n{line}\nresult: {result}"    # observe + update memory
         if verbose:
             print(f"result: {result}")
-    return last or "Stopped: step budget reached."  # never return an empty answer
+    return "Stopped: step budget reached."
 
 
 if __name__ == "__main__":
