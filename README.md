@@ -7,9 +7,15 @@ runnable code for that week's videos.
 
 [`week1/rsa_agent.py`](week1/rsa_agent.py) is a complete AI agent in about 30 lines:
 a **local Llama 3.2** model, one **web-search** tool, a **text memory**, and a **loop**
-that ties them together. For this course, the web search is a small built-in **stub**
-(canned answers) so the agent runs offline and everyone sees the same result. In a later
-week we swap the stub for a real web search.
+that ties them together.
+
+The search is a **real web search**: it uses [`ddgs`](https://pypi.org/project/ddgs/),
+a small Python package that queries the DuckDuckGo search engine and returns the top
+results as text — no browser and no API key. When the model outputs
+`action: search <query>`, the loop calls this tool and feeds the results back on the
+next pass. The system prompt only tells the model its role, its tool, and the reply
+format — **it does not script the steps**, so the agent decides for itself what to
+search and when to finish.
 
 ### Prerequisites
 
@@ -18,9 +24,9 @@ week we swap the stub for a real web search.
    ```
    ollama pull llama3.2
    ```
-3. **The Python package** that lets your code talk to Ollama:
+3. **The Python packages** — talk to Ollama, plus the real web search:
    ```
-   pip install ollama        # macOS: pip3 install ollama
+   pip install ollama ddgs        # macOS: pip3 install ollama ddgs
    ```
 
 ### Run it
@@ -36,4 +42,5 @@ Watch the loop turn, one pass at a time:
 python  rsa_agent.py --verbose
 ```
 
-Expected answer: `France's GDP in 2026 is $3.6 trillion.`
+Because the search is live, the exact results (and the final answer) will vary from
+run to run — that's a real agent working against the real web.

@@ -1,9 +1,8 @@
 """RSA — the minimal research agent from Week 1 (about 30 lines).
 
-It runs a local Llama 3.2 model through Ollama and has one tool: a web search.
-For this course demo, `web_search` is a small BUILT-IN STUB that returns canned
-results, so the agent runs offline and every student sees the same clean trace.
-(In a later week we swap this stub for a real web search.)
+It runs a local Llama 3.2 model through Ollama and has one tool: a REAL web search.
+The search uses `ddgs`, a small Python package that queries the DuckDuckGo search
+engine and hands back the top results as plain text — no browser, no API key.
 
 The system prompt gives the model only its role, its tool, and the reply format.
 It does NOT tell the model what to search for or when to stop — the agent decides
@@ -12,14 +11,15 @@ that on its own, one pass at a time. That autonomy is the whole point.
 Prerequisites
   1. Install Python 3.
   2. Install Ollama, then run:  ollama pull llama3.2
-  3. Install the Python package:  pip install ollama
+  3. Install the Python packages:  pip install ollama ddgs
 
 Run it
   python rsa_agent.py             # just the answer
   python rsa_agent.py --verbose   # watch the memory grow, pass by pass
 """
 import sys
-import ollama  # talks to the local model
+import ollama          # talks to the local model
+from ddgs import DDGS  # the real web-search engine (DuckDuckGo)
 
 MODEL = "llama3.2"
 SYSTEM = (  # role + tool + format only — no plan, no examples
@@ -32,13 +32,17 @@ SYSTEM = (  # role + tool + format only — no plan, no examples
 )
 
 
-def web_search(query):  # the TOOL (stubbed with canned answers for the demo)
-    q = query.lower()
-    if "year" in q:
-        return "We are in 2026."
-    if "france" in q and "gdp" in q:
-        return "France's GDP in 2026 is $3.6 trillion."
-    return "No relevant result found."
+# The one TOOL: a REAL web search. When the model emits "action: search <query>",
+# the loop below calls this function, which asks DuckDuckGo (via the ddgs package)
+# and returns the top result snippets as text for the model to read next pass.
+def web_search(query):
+    try:
+        with DDGS() as ddg:
+            hits = ddg.text(query, max_results=3)
+        text = "  ".join(h.get("body", "") for h in hits if h.get("body"))
+        return " ".join(text.split())[:400] or "No results found."
+    except Exception as e:
+        return f"Search error: {e}"
 
 
 def call(memory):  # MODEL: memory -> one 'action:' line
