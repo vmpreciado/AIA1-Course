@@ -1,11 +1,12 @@
 # AIA1 — Agentic AI (Course Code)
 
 Companion code for the **AIA1** course (Agentic AI). Each `weekN/` folder holds the
-runnable code for that week's videos.
+runnable code for that week's videos. Files are version-tagged (e.g. `_v1_0`, `_v1_1`)
+so each week's agent stays distinct.
 
-## Week 1 — Build your first agent
+## Week 1 — Build your first agent (RSA v1.0)
 
-[`week1/rsa_agent.py`](week1/rsa_agent.py) is a complete AI agent in about 30 lines:
+[`week1/rsa_agent_v1_0.py`](week1/rsa_agent_v1_0.py) is a complete AI agent in about 30 lines:
 a **local Llama 3.2** model, one **web-search** tool, a **text memory**, and a **loop**
 that ties them together.
 
@@ -32,14 +33,14 @@ search and when to finish.
 ### Run it
 
 ```
-python  rsa_agent.py         # Windows
-python3 rsa_agent.py         # macOS
+python  rsa_agent_v1_0.py         # Windows
+python3 rsa_agent_v1_0.py         # macOS
 ```
 
 Watch the loop turn, one pass at a time:
 
 ```
-python  rsa_agent.py --verbose
+python  rsa_agent_v1_0.py --verbose
 ```
 
 Because the search is live, the exact results (and the final answer) will vary from
@@ -47,8 +48,8 @@ run to run — that's a real agent working against the real web.
 
 ## Week 2 — Make the decisions reliable (RSA v1.1)
 
-[`week2/rsa_agent.py`](week2/rsa_agent.py) is the same agent with the four Chapter 2
-upgrades, all in the model's **reason** step:
+[`week2/rsa_agent_v1_1.py`](week2/rsa_agent_v1_1.py) is the same agent with the four
+Chapter 2 upgrades, all in the model's **reason** step:
 
 1. **A constitution** — the system prompt is written in five labelled parts: role,
    goal, constraints, action space, and output format.
@@ -73,13 +74,13 @@ pip install ollama ddgs pydantic     # macOS: pip3 install ...
 
 ### Run it
 
-Save `week2/rsa_agent.py` into a folder (e.g. `~/Desktop/agent`), then:
+Save `week2/rsa_agent_v1_1.py` into a folder (e.g. `~/Desktop/agent`), then:
 
 ```
 cd ~/Desktop/agent
-python  rsa_agent.py            # Windows
-python3 rsa_agent.py            # macOS
-python3 rsa_agent.py --verbose  # watch the reasoning, the votes, and the loop
+python  rsa_agent_v1_1.py            # Windows
+python3 rsa_agent_v1_1.py            # macOS
+python3 rsa_agent_v1_1.py --verbose  # watch the reasoning, the votes, and the loop
 ```
 
 A single decision now costs several model calls (a few samples, each possibly
