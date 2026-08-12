@@ -44,3 +44,43 @@ python  rsa_agent.py --verbose
 
 Because the search is live, the exact results (and the final answer) will vary from
 run to run — that's a real agent working against the real web.
+
+## Week 2 — Make the decisions reliable (RSA v1.1)
+
+[`week2/rsa_agent.py`](week2/rsa_agent.py) is the same agent with the four Chapter 2
+upgrades, all in the model's **reason** step:
+
+1. **A constitution** — the system prompt is written in five labelled parts: role,
+   goal, constraints, action space, and output format.
+2. **Chain-of-thought** — the decision schema asks the model to write its `reasoning`
+   first, before it commits to an action.
+3. **A Decision schema + validate-and-retry** — every decision is a Pydantic
+   `Decision`. We force the shape with Ollama's `format=` argument and check the reply
+   with `model_validate_json`; a malformed reply is handed back for a retry.
+4. **Self-consistency** — each decision is sampled a few times and the majority vote
+   is kept, so the odd wrong sample gets outvoted.
+
+As in Week 1, the system prompt gives the model only its role, tools, and output
+format — it never scripts the steps.
+
+### Prerequisites
+
+Same as Week 1, plus **Pydantic** (the schema library):
+
+```
+pip install ollama ddgs pydantic     # macOS: pip3 install ...
+```
+
+### Run it
+
+Save `week2/rsa_agent.py` into a folder (e.g. `~/Desktop/agent`), then:
+
+```
+cd ~/Desktop/agent
+python  rsa_agent.py            # Windows
+python3 rsa_agent.py            # macOS
+python3 rsa_agent.py --verbose  # watch the reasoning, the votes, and the loop
+```
+
+A single decision now costs several model calls (a few samples, each possibly
+retried), but what comes out is a validated `Decision` the loop can trust.
