@@ -1,0 +1,193 @@
+"""RSA v1.2 — the tool-using agent, rebuilt on native function calling.
+
+This is RSA with its ACTION side rebuilt for Chapter 3. The reasoning core is the
+same idea as v1.1 — a constitution-style system prompt that gives the model only
+its role, its tools, and how to answer, never a worked example or a scripted plan.
+What changes is HOW the agent acts:
+
+  1. NATIVE FUNCTION CALLING — we retire the hand-written JSON parser. We hand the
+     model the tool schemas through Ollama's `tools=` argument, and the model
+     replies with a structured tool call (which tool, with what arguments).
+  2. A REAL TOOLBOX, generated from Pydantic — two tools: a safe read tool,
+     `read_note`, and a risky write tool, `save_note`. Each tool's arguments are a
+     Pydantic class; the SAME class both describes the tool to the model and
+     validates the arguments when a call arrives, so schema and code cannot drift.
+  3. A CONFIRMATION GATE — `save_note` writes to disk, which is not cheaply
+     reversible, so it never runs without a human "yes".
+  4. ERRORS AS RESULTS — a failed tool call is not a crash. We catch the error and
+     hand it back to the model as the tool's result, so the model can read it and
+     correct its next call.
+
+The whole thing runs the function-calling loop over MESSAGES — the running ledger
+of the conversation, which is the agent's memory.
+
+Prerequisites
+  1. Install Python 3.
+  2. Install Ollama, then run:  ollama pull llama3.2
+  3. Install the Python packages:  pip install ollama pydantic
+
+Run it (it will ask you for your goal)
+  python rsa_agent_v1_2.py             # just the final reply
+  python rsa_agent_v1_2.py --verbose   # watch the loop, the tool calls, and the gate
+"""
+import json
+import os
+import sys
+
+import ollama                                    # talks to the local model
+from pydantic import BaseModel, ValidationError  # tool schemas + argument validation
+
+MODEL     = "llama3.2"
+MAX_STEPS = 8   # guard: cap on passes through the loop, so it can never run forever
+
+
+# ---------------------------------------------------------------------------
+# 1) THE CONSTITUTION  (the system prompt — the reasoning core, unchanged in spirit)
+#    Role + Goal + Constraints + the tools it may use + how to finish. Nothing
+#    here scripts the task or hands the model the answer.
+# ---------------------------------------------------------------------------
+SYSTEM = """\
+# ROLE
+You are RSA, a careful note-taking assistant.
+
+# GOAL
+Help the user by reading facts from their notes and saving new notes when asked.
+
+# CONSTRAINTS
+- Use the tools to read and write notes; do not rely on memory for the user's saved facts.
+- Take one action at a time.
+- Never invent a note's contents; read the note to confirm.
+- If a tool returns an error, read it and try a corrected call.
+
+# TOOLS
+- read_note(path): read a local note and return its text.
+- save_note(path, text): write text to a local note. This is a write action.
+
+# HOW TO FINISH
+Call a tool whenever you need one. When the request is complete, reply in plain
+text with a short confirmation for the user and do NOT call a tool.
+"""
+
+
+# ---------------------------------------------------------------------------
+# 2) THE TOOLBOX  (two tools; their argument schemas generated from Pydantic)
+#    Each tool's arguments are a Pydantic class. The docstring becomes the tool's
+#    description the model reads; the fields become its parameters. The very same
+#    class validates the arguments when a call arrives (see `run_tool`).
+# ---------------------------------------------------------------------------
+class ReadNote(BaseModel):
+    """Read a local note file and return its text. Use it to recall a fact the user saved earlier."""
+    path: str
+
+
+class SaveNote(BaseModel):
+    """Write text to a local note file, creating folders if needed. Use it to save a note or summary for later."""
+    path: str
+    text: str
+
+
+def read_note(path):
+    """Safe read tool: return the file's text (raises if the path is wrong)."""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def save_note(path, text):
+    """Risky write tool: write text to the file, creating parent folders."""
+    folder = os.path.dirname(path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return f"Saved {len(text)} characters to {path}."
+
+
+# Map each tool name to (argument schema class, implementation function).
+TOOLBOX = {
+    "read_note": (ReadNote, read_note),
+    "save_note": (SaveNote, save_note),
+}
+DANGEROUS = {"save_note"}   # write actions that must pass the confirmation gate
+
+
+def tool_specs():
+    """Build the list of tool schemas we hand the model — straight from Pydantic."""
+    specs = []
+    for name, (schema, _) in TOOLBOX.items():
+        specs.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": (schema.__doc__ or "").strip(),
+                "parameters": schema.model_json_schema(),
+            },
+        })
+    return specs
+
+
+# ---------------------------------------------------------------------------
+# 3) THE CONFIRMATION GATE  (a human "yes" before anything irreversible)
+# ---------------------------------------------------------------------------
+def approved(name, args):
+    print(f"\n[gate] The agent wants to run a write action: {name}({args})")
+    return input("[gate] Approve this write? [y/n]: ").strip().lower().startswith("y")
+
+
+# ---------------------------------------------------------------------------
+# 4) RUN ONE TOOL CALL  (validate args, gate writes, run — and errors-as-results)
+#    Whatever happens, we return a STRING that becomes the tool's result message.
+#    A failure is not a crash: the error text flows back so the model can recover.
+# ---------------------------------------------------------------------------
+def run_tool(name, args):
+    if name not in TOOLBOX:
+        return f"Error: no such tool '{name}'."
+    schema, func = TOOLBOX[name]
+    try:
+        valid = schema(**args)                     # validate the arguments (same class)
+    except ValidationError as e:
+        return f"Error: invalid arguments for {name}: {e}"
+    if name in DANGEROUS and not approved(name, args):
+        return "Cancelled by the user."            # gate said no -> flows back as a result
+    try:
+        return func(**valid.model_dump())          # run the tool
+    except Exception as e:
+        return f"Error: {e}"                        # error-as-result (e.g. file not found)
+
+
+# ---------------------------------------------------------------------------
+# 5) THE FUNCTION-CALLING LOOP  (over MESSAGES — the ledger / the agent's memory)
+#    Seed the ledger, ask the model with the tools, run any calls it requests,
+#    append every result, and repeat until the model answers with no tool call.
+# ---------------------------------------------------------------------------
+def agent(goal, verbose=False):
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": goal}]
+    for step in range(1, MAX_STEPS + 1):
+        if verbose:
+            print(f"\n--- pass {step} ---")
+        reply = ollama.chat(model=MODEL, messages=messages, tools=tool_specs())
+        msg = reply["message"]
+        if hasattr(msg, "model_dump"):             # normalise to a plain dict
+            msg = msg.model_dump()
+        messages.append(msg)                       # append the whole reply to the ledger
+        calls = msg.get("tool_calls") or []
+        if not calls:                              # no tool call -> the model is done
+            return (msg.get("content") or "").strip() or "(no answer)"
+        for call in calls:
+            name = call["function"]["name"]
+            args = call["function"]["arguments"] or {}
+            if isinstance(args, str):              # some backends return args as JSON text
+                args = json.loads(args)
+            if verbose:
+                print(f"call   : {name}({args})")
+            result = run_tool(name, args)          # validate + gate + run + error-as-result
+            if verbose:
+                print(f"result : {result}")
+            messages.append({"role": "tool", "content": str(result)})  # observe: append result
+    return "Stopped: step budget reached."
+
+
+if __name__ == "__main__":
+    verbose = "--verbose" in sys.argv
+    goal = input("What would you like me to do? ")   # ask the user for the goal
+    print("\n" + agent(goal, verbose=verbose))
