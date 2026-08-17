@@ -23,7 +23,7 @@ of the conversation, which is the agent's memory.
 
 Prerequisites
   1. Install Python 3.
-  2. Install Ollama, then run:  ollama pull llama3.2
+  2. Install Ollama, then run:  ollama pull qwen2.5:7b
   3. Install the Python packages:  pip install ollama pydantic
 
 Run it (it will ask you for your goal)
@@ -35,9 +35,9 @@ import os
 import sys
 
 import ollama                                    # talks to the local model
-from pydantic import BaseModel, ValidationError  # tool schemas + argument validation
+from pydantic import BaseModel, ConfigDict, ValidationError  # tool schemas + argument validation
 
-MODEL     = "llama3.2"
+MODEL     = "qwen2.5:7b"
 MAX_STEPS = 8   # guard: cap on passes through the loop, so it can never run forever
 
 
@@ -77,11 +77,13 @@ text with a short confirmation for the user and do NOT call a tool.
 # ---------------------------------------------------------------------------
 class ReadNote(BaseModel):
     """Read a local note file and return its text. Use it to recall a fact the user saved earlier."""
+    model_config = ConfigDict(extra="forbid")  # reject unknown arguments so a malformed call is caught
     path: str
 
 
 class SaveNote(BaseModel):
     """Write text to a local note file, creating folders if needed. Use it to save a note or summary for later."""
+    model_config = ConfigDict(extra="forbid")  # reject unknown arguments so a malformed call is caught, not silently written
     path: str
     text: str
 
