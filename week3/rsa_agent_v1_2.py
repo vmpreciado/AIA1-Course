@@ -186,12 +186,15 @@ def agent(goal, verbose=False):
         args = call["function"]["arguments"] or {}
         if isinstance(args, str):                  # some backends return args as JSON text
             args = json.loads(args)
-        if verbose:
-            print(f"call   : {name}({args})")
+        if verbose:                                # show the pass as reasoning -> action -> result
+            reasoning = (msg.get("content") or msg.get("thinking") or "").strip()
+            if reasoning:                          # chain-of-thought, shown only when the model gives it
+                print(f"reasoning: {reasoning}")
+            print(f"action   : {name}({args})")
         result = run_tool(name, args)              # validate + gate + run + error-as-result
         if verbose:
-            print(f"result : {result}")
-        # observe: append the result, tagged with the tool it came from
+            print(f"result   : {result}")
+        # record the result, tagged with the tool it came from
         messages.append({"role": "tool", "tool_name": name, "content": str(result)})
     return "Stopped: step budget reached."
 
