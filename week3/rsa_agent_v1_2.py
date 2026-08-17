@@ -37,8 +37,21 @@ import sys
 import ollama                                    # talks to the local model
 from pydantic import BaseModel, ConfigDict, ValidationError  # tool schemas + argument validation
 
-MODEL     = "qwen2.5:7b"
-MAX_STEPS = 8   # guard: cap on passes through the loop, so it can never run forever
+MODEL     = "qwen2.5:7b"   # the local model that does the thinking (see the homework for why not a smaller one)
+MAX_STEPS = 8              # guard: cap on passes through the loop, so it can never run forever
+
+
+# ===========================================================================
+# MAP OF THIS FILE  —  five blocks. You do NOT need to read every line; the goal
+# is to find each block and get a sense of what it does.
+#   1) THE CONSTITUTION      — the system prompt: who the agent is and the rules it follows.
+#   2) THE TOOLBOX           — the two tools (read_note, save_note): their input schemas
+#                              and the plain functions that run them.
+#   3) THE CONFIRMATION GATE — asks a human for yes / no before any write to disk.
+#   4) RUN ONE TOOL CALL     — checks the arguments, runs the tool, and turns any error
+#                              into a result (so a failure is never a crash).
+#   5) THE LOOP              — the agent's memory and its reasoning -> action -> result cycle.
+# ===========================================================================
 
 
 # ---------------------------------------------------------------------------
@@ -74,27 +87,30 @@ text with a short confirmation for the user and do NOT call a tool.
 #    Each tool's arguments are a Pydantic class. The docstring becomes the tool's
 #    description the model reads; the fields become its parameters. The very same
 #    class validates the arguments when a call arrives (see `run_tool`).
+#    In plain terms: each tool has TWO parts — a small "class" just below that lists
+#    the tool's inputs and checks them, paired with a plain function further down
+#    that actually does the work (open a file, write a file).
 # ---------------------------------------------------------------------------
-class ReadNote(BaseModel):
+class ReadNote(BaseModel):                      # the INPUTS for the read tool: just a file path
     """Read a local note file and return its text. Use it to recall a fact the user saved earlier."""
     model_config = ConfigDict(extra="forbid")  # reject unknown arguments so a malformed call is caught
     path: str
 
 
-class SaveNote(BaseModel):
+class SaveNote(BaseModel):                      # the INPUTS for the write tool: where to write, and what
     """Write text to a local note file, creating folders if needed. Use it to save a note or summary for later."""
     model_config = ConfigDict(extra="forbid")  # reject unknown arguments so a malformed call is caught, not silently written
     path: str
     text: str
 
 
-def read_note(path):
+def read_note(path):                            # the WORK of the read tool: open the file and hand back its text
     """Safe read tool: return the file's text (raises if the path is wrong)."""
     with open(path, "r", encoding="utf-8") as f:
         return f.read().strip()
 
 
-def save_note(path, text):
+def save_note(path, text):                      # the WORK of the write tool: create folders if needed, then write
     """Risky write tool: write text to the file, creating parent folders."""
     folder = os.path.dirname(path)
     if folder:
@@ -178,10 +194,10 @@ def agent(goal, verbose=False):
             messages.append(msg)
             return (msg.get("content") or "").strip() or "(no answer)"
         # ONE ACTION AT A TIME: even if the model proposes several calls in one turn,
-        # run only the first, so it must observe the result before choosing the next.
+        # run only the first, so it must see the result before choosing the next.
         call = calls[0]
         msg["tool_calls"] = [call]                 # keep the ledger consistent with what we run
-        messages.append(msg)
+        messages.append(msg)                       # MEMORY (1 of 2): remember the action the agent chose
         name = call["function"]["name"]
         args = call["function"]["arguments"] or {}
         if isinstance(args, str):                  # some backends return args as JSON text
@@ -194,7 +210,8 @@ def agent(goal, verbose=False):
         result = run_tool(name, args)              # validate + gate + run + error-as-result
         if verbose:
             print(f"result   : {result}")
-        # record the result, tagged with the tool it came from
+        # MEMORY (2 of 2): remember the result too, tagged with the tool it came from.
+        # These two appends per pass ARE the agent's memory — nothing else is stored.
         messages.append({"role": "tool", "tool_name": name, "content": str(result)})
     return "Stopped: step budget reached."
 
