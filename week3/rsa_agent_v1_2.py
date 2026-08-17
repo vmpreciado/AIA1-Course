@@ -158,8 +158,10 @@ def run_tool(name, args):
 
 # ---------------------------------------------------------------------------
 # 5) THE FUNCTION-CALLING LOOP  (over MESSAGES — the ledger / the agent's memory)
-#    Seed the ledger, ask the model with the tools, run any calls it requests,
-#    append every result, and repeat until the model answers with no tool call.
+#    Seed the ledger, ask the model with the tools, run the ONE action it asks for,
+#    append the result so the model can SEE it, and repeat until it answers with no
+#    tool call. One action per pass matters: a write must not be guessed before the
+#    read it depends on has come back.
 # ---------------------------------------------------------------------------
 def agent(goal, verbose=False):
     messages = [{"role": "system", "content": SYSTEM},
@@ -171,21 +173,26 @@ def agent(goal, verbose=False):
         msg = reply["message"]
         if hasattr(msg, "model_dump"):             # normalise to a plain dict
             msg = msg.model_dump()
-        messages.append(msg)                       # append the whole reply to the ledger
         calls = msg.get("tool_calls") or []
         if not calls:                              # no tool call -> the model is done
+            messages.append(msg)
             return (msg.get("content") or "").strip() or "(no answer)"
-        for call in calls:
-            name = call["function"]["name"]
-            args = call["function"]["arguments"] or {}
-            if isinstance(args, str):              # some backends return args as JSON text
-                args = json.loads(args)
-            if verbose:
-                print(f"call   : {name}({args})")
-            result = run_tool(name, args)          # validate + gate + run + error-as-result
-            if verbose:
-                print(f"result : {result}")
-            messages.append({"role": "tool", "content": str(result)})  # observe: append result
+        # ONE ACTION AT A TIME: even if the model proposes several calls in one turn,
+        # run only the first, so it must observe the result before choosing the next.
+        call = calls[0]
+        msg["tool_calls"] = [call]                 # keep the ledger consistent with what we run
+        messages.append(msg)
+        name = call["function"]["name"]
+        args = call["function"]["arguments"] or {}
+        if isinstance(args, str):                  # some backends return args as JSON text
+            args = json.loads(args)
+        if verbose:
+            print(f"call   : {name}({args})")
+        result = run_tool(name, args)              # validate + gate + run + error-as-result
+        if verbose:
+            print(f"result : {result}")
+        # observe: append the result, tagged with the tool it came from
+        messages.append({"role": "tool", "tool_name": name, "content": str(result)})
     return "Stopped: step budget reached."
 
 
